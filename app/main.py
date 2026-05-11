@@ -66,10 +66,13 @@ async def get_dashboard():
                 .full-width { grid-column: span 2; }
                 canvas, #map_div { width: 100% !important; height: 450px; }
                 .label { font-size: 0.7rem; color: #555; margin-bottom: 15px; text-transform: uppercase; align-self: flex-start; }
+                
+                /* FIX: Hide Google's disputed borders by blending them into the map color */
+                #map_div path { stroke: #2a2a2a !important; stroke-width: 1px !important; stroke-linejoin: round !important; }
             </style>
         </head>
         <body>
-            <h1>> COMMONS_EXHIBITION_MODE_V7_GLOBAL</h1>
+            <h1>> COMMONS_EXHIBITION_MODE_V7.1</h1>
             
             <div class="grid">
                 <div class="card full-width">
@@ -90,8 +93,6 @@ async def get_dashboard():
                 google.charts.load('current', {'packages':['geochart']});
                 let charts = {};
 
-                // --- 1. THE GLOBAL COORDINATE DICTIONARY ---
-                // I have added major global hubs. You can add literally any city in the world here by googling "City Name Lat Long"
                 const geoDB = {
                     'london': [51.5072, -0.1276],
                     'hammersmith': [51.4928, -0.2253],
@@ -168,12 +169,13 @@ async def get_dashboard():
                     });
 
                     const options = {
-                        region: 'world', // <-- THIS SINGLE WORD MAKES IT GLOBAL
+                        region: 'world', 
                         displayMode: 'markers',
                         colorAxis: {colors: ['#004411', '#00FF41']},
                         backgroundColor: '#050505',
                         datalessRegionColor: '#2a2a2a', 
-                        sizeAxis: { minValue: 0, maxValue: 50, minSize: 8, maxSize: 25 }
+                        /* FIX: Drastically reduced the dot sizes so they don't overlap globally */
+                        sizeAxis: { minValue: 0, maxValue: 50, minSize: 3, maxSize: 8 }
                     };
                     const chart = new google.visualization.GeoChart(document.getElementById('map_div'));
                     chart.draw(dataTable, options);
@@ -188,7 +190,7 @@ async def get_dashboard():
                             datasets: [{
                                 label: 'Distance',
                                 data: data.map(d => ({ x: d.user, y: d.avgDist })),
-                                backgroundColor: theme, pointRadius: 10
+                                backgroundColor: theme, pointRadius: 8
                             }]
                         },
                         options: { scales: { x: { type: 'category', labels: [...new Set(data.map(d=>d.user))], grid: {display:false} }, y: {grid:{color:'#111'}} }, plugins:{legend:{display:false}} }
@@ -201,7 +203,7 @@ async def get_dashboard():
                             datasets: [{
                                 label: 'Energy',
                                 data: data.map(d => ({ x: d.region, y: d.avgEnergy })),
-                                backgroundColor: '#00ffff', pointRadius: 10
+                                backgroundColor: '#00ffff', pointRadius: 8
                             }]
                         },
                         options: { scales: { x: { type: 'category', labels: [...new Set(data.map(d=>d.region))], grid: {display:false} }, y: {grid:{color:'#111'}} }, plugins:{legend:{display:false}} }
