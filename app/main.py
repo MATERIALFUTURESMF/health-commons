@@ -7,7 +7,6 @@ from typing import Optional, Any
 import gspread
 from google.oauth2.service_account import Credentials
 
-# --- THIS WAS THE MISSING PIECE ---
 app = FastAPI()
 
 def get_google_sheet():
@@ -96,7 +95,7 @@ async def get_dashboard():
             </style>
         </head>
         <body>
-            <h1>> COMMONS_EXHIBITION_MODE_V11.2</h1>
+            <h1>> COMMONS_EXHIBITION_MODE_V11.3</h1>
             
             <div class="map-wrapper">
                 <div class="map-label">Geographic Context / Precision Zoom</div>
@@ -192,18 +191,35 @@ async def get_dashboard():
                         const maxSpan = Math.max(latSpan, lonSpan);
 
                         let zoomScale = 1.2; 
-                        if (maxSpan < 0.5) zoomScale = 8.5;     
-                        else if (maxSpan < 2) zoomScale = 6.0;   
-                        else if (maxSpan < 10) zoomScale = 3.5;  
-                        else if (maxSpan < 40) zoomScale = 1.8;  
+                        let xAdjustment = 0;
+                        let yAdjustment = 0;
+
+                        // CALIBRATED V11.3 OFFSETS
+                        if (maxSpan < 0.5) { 
+                            zoomScale = 8.5; 
+                            xAdjustment = -1.1; 
+                            yAdjustment = 1.8;
+                        } else if (maxSpan < 2) { 
+                            zoomScale = 6.0;
+                            xAdjustment = -1.3;
+                            yAdjustment = 2.0;
+                        } else if (maxSpan < 10) { 
+                            zoomScale = 3.5;
+                            xAdjustment = -1.5;
+                            yAdjustment = 2.1;
+                        } else { 
+                            zoomScale = 1.8;
+                            xAdjustment = -1.8;
+                            yAdjustment = 2.2;
+                        }
 
                         const centerLat = (minLat + maxLat) / 2;
                         const centerLon = (minLon + maxLon) / 2;
+                        const xOffset = centerLon * xAdjustment; 
+                        const yOffset = centerLat * yAdjustment;
 
-                        const xOffset = centerLon * -1.8; 
-                        const yOffset = centerLat * 2.2;
-
-                        document.getElementById('map_div').style.transform = `scale(${zoomScale}) translate(${xOffset}px, ${yOffset}px)`;
+                        const mapEl = document.getElementById('map_div');
+                        mapEl.style.transform = `scale(${zoomScale}) translate(${xOffset}px, ${yOffset}px)`;
                     }
 
                     const options = {
