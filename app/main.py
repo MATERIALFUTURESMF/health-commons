@@ -80,9 +80,12 @@ async def get_dashboard():
                     transform-origin: center center;
                 } 
 
-                #map_div circle { 
-                    stroke-width: 0.5px !important; 
-                    stroke: rgba(255,255,255,0.1) !important;
+                /* Forced High-Visibility Pins */
+                .exhibition-pin {
+                    fill: #00FF41 !important;
+                    stroke: #fff !important;
+                    stroke-width: 1px !important;
+                    filter: drop-shadow(0 0 5px #00FF41);
                 }
 
                 .map-label { position: absolute; top: 20px; left: 20px; font-size: 0.7rem; color: #555; text-transform: uppercase; z-index: 10; }
@@ -91,14 +94,14 @@ async def get_dashboard():
                 canvas { width: 100% !important; height: 300px !important; }
                 .label { font-size: 0.7rem; color: #555; margin-bottom: 15px; text-transform: uppercase; align-self: flex-start; }
                 
-                #map_div path { stroke: #222 !important; stroke-width: 0.15px !important; }
+                #map_div path { stroke: #333 !important; stroke-width: 0.25px !important; }
             </style>
         </head>
         <body>
-            <h1>> COMMONS_EXHIBITION_MODE_V11.3</h1>
+            <h1>> COMMONS_EXHIBITION_MODE_V11.5</h1>
             
             <div class="map-wrapper">
-                <div class="map-label">Geographic Context / Precision Zoom</div>
+                <div class="map-label">Geographic Context / Adaptive Frame-Lock</div>
                 <div id="map_div"></div>
             </div>
 
@@ -163,25 +166,15 @@ async def get_dashboard():
                     dataTable.addColumn('number', 'Latitude');
                     dataTable.addColumn('number', 'Longitude');
                     dataTable.addColumn('string', 'Location');
-                    dataTable.addColumn('number', 'Avg Steps');
+                    dataTable.addColumn('number', 'Marker');
 
                     let lats = [], lons = [];
-                    const mapGroups = {};
-                    
                     data.forEach(d => {
                         if (geoDB[d.city]) {
                             const [lat, lon] = geoDB[d.city];
-                            lats.push(lat);
-                            lons.push(lon);
-                            if(!mapGroups[d.city]) mapGroups[d.city] = [];
-                            mapGroups[d.city].push(d.avgSteps);
+                            lats.push(lat); lons.push(lon);
+                            dataTable.addRow([lat, lon, d.city, 1]);
                         }
-                    });
-
-                    Object.keys(mapGroups).forEach(city => {
-                        const avg = mapGroups[city].reduce((a,b)=>a+b,0)/mapGroups[city].length;
-                        const coords = geoDB[city.toLowerCase()];
-                        dataTable.addRow([coords[0], coords[1], city, avg]);
                     });
 
                     if (lats.length > 0) {
@@ -190,49 +183,53 @@ async def get_dashboard():
                         const latSpan = maxLat - minLat, lonSpan = maxLon - minLon;
                         const maxSpan = Math.max(latSpan, lonSpan);
 
+                        // Adaptive Frame-Lock Logic
                         let zoomScale = 1.2; 
-                        let xAdjustment = 0;
-                        let yAdjustment = 0;
+                        let xOff = 0, yOff = 0;
 
-                        // CALIBRATED V11.3 OFFSETS
                         if (maxSpan < 0.5) { 
-                            zoomScale = 8.5; 
-                            xAdjustment = -1.1; 
-                            yAdjustment = 1.8;
-                        } else if (maxSpan < 2) { 
-                            zoomScale = 6.0;
-                            xAdjustment = -1.3;
-                            yAdjustment = 2.0;
+                            zoomScale = 7.0; // Deep enough for London but safe
+                            xOff = -0.5; // Manual nudge to center UK
+                            yOff = 1.2;
                         } else if (maxSpan < 10) { 
-                            zoomScale = 3.5;
-                            xAdjustment = -1.5;
-                            yAdjustment = 2.1;
+                            zoomScale = 3.5; 
+                            xOff = -1.0; 
+                            yOff = 1.8;
                         } else { 
-                            zoomScale = 1.8;
-                            xAdjustment = -1.8;
-                            yAdjustment = 2.2;
+                            zoomScale = 1.5; 
+                            xOff = -1.5; 
+                            yOff = 2.0;
                         }
 
                         const centerLat = (minLat + maxLat) / 2;
                         const centerLon = (minLon + maxLon) / 2;
-                        const xOffset = centerLon * xAdjustment; 
-                        const yOffset = centerLat * yAdjustment;
 
-                        const mapEl = document.getElementById('map_div');
-                        mapEl.style.transform = `scale(${zoomScale}) translate(${xOffset}px, ${yOffset}px)`;
+                        document.getElementById('map_div').style.transform = `scale(${zoomScale}) translate(${centerLon * xOff}px, ${centerLat * yOff}px)`;
                     }
 
                     const options = {
                         region: 'world', 
                         displayMode: 'markers',
-                        colorAxis: {colors: ['#004411', '#00FF41']},
                         backgroundColor: '#000',
-                        datalessRegionColor: '#080808', 
-                        sizeAxis: { minValue: 0, maxValue: 100, minSize: 2, maxSize: 2 },
+                        datalessRegionColor: '#0A0A0A', 
+                        sizeAxis: { minValue: 1, maxValue: 1, minSize: 5, maxSize: 5 },
+                        colorAxis: {colors: ['#00FF41']},
                         legend: 'none',
-                        tooltip: { trigger: 'none' }
+                        tooltip: { trigger: 'none' },
+                        enableInteractivity: false
                     };
+
                     const chart = new google.visualization.GeoChart(document.getElementById('map_div'));
+                    
+                    // Force the pins to glow and stay visible
+                    google.visualization.events.addListener(chart, 'ready', function() {
+                        const circles = document.getElementsByTagName('circle');
+                        for(let i=0; i<circles.length; i++) {
+                            circles[i].setAttribute('class', 'exhibition-pin');
+                            circles[i].setAttribute('r', '4'); 
+                        }
+                    });
+
                     chart.draw(dataTable, options);
                 }
 
