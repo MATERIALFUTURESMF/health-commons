@@ -69,11 +69,11 @@ async def get_dashboard():
             </style>
         </head>
         <body>
-            <h1>> COMMONS_EXHIBITION_MODE_V5</h1>
+            <h1>> COMMONS_EXHIBITION_MODE_V7_GLOBAL</h1>
             
             <div class="grid">
                 <div class="card full-width">
-                    <div class="label">Geographic Distribution / Avg Steps by Region</div>
+                    <div class="label">Global Geographic Distribution / Avg Steps</div>
                     <div id="map_div"></div>
                 </div>
                 <div class="card">
@@ -90,28 +90,37 @@ async def get_dashboard():
                 google.charts.load('current', {'packages':['geochart']});
                 let charts = {};
 
+                // --- 1. THE GLOBAL COORDINATE DICTIONARY ---
+                // I have added major global hubs. You can add literally any city in the world here by googling "City Name Lat Long"
+                const geoDB = {
+                    'london': [51.5072, -0.1276],
+                    'hammersmith': [51.4928, -0.2253],
+                    'bristol': [51.4545, -2.5879],
+                    'paris': [48.8566, 2.3522],
+                    'new york': [40.7128, -74.0060],
+                    'tokyo': [35.6762, 139.6503],
+                    'sydney': [-33.8688, 151.2093],
+                    'cape town': [-33.9249, 18.4241],
+                    'são paulo': [-23.5505, -46.6333],
+                    'berlin': [52.5200, 13.4050]
+                };
+
                 async function updateAll() {
                     const response = await fetch('/api/stats');
                     const rawData = await response.json();
                     
                     const group = {};
                     rawData.forEach(row => {
-                        // --- DATA SANITIZATION ENGINE ---
                         let rawReg = row['REGION'] || 'Unknown';
                         let parts = rawReg.split(',');
                         
-                        // 1. Clean the city name (capitalize first letter, lowercase rest)
                         let city = parts[0].trim();
-                        if(city.length > 0) {
-                            city = city.charAt(0).toUpperCase() + city.slice(1).toLowerCase();
-                        }
+                        if(city.length > 0) city = city.charAt(0).toUpperCase() + city.slice(1).toLowerCase();
                         
-                        // 2. Clean the country code
                         let country = parts.length > 1 ? parts[1].trim().toUpperCase() : '';
                         if (country === 'UK' || country === 'U.K.') country = 'GB';
                         if (country === 'USA') country = 'US';
                         
-                        // 3. Rebuild a perfect string for the scatter charts (e.g., "Hammersmith, GB")
                         let cleanRegion = country ? `${city}, ${country}` : city;
                         
                         const key = `${row['USER NAME']}|${cleanRegion}`;
@@ -133,43 +142,33 @@ async def get_dashboard():
                 }
 
                 function drawMap(data) {
-                    const discoveredCountries = new Set();
-                    let containsUnformattedData = false;
+                    const dataTable = new google.visualization.DataTable();
+                    dataTable.addColumn('number', 'Latitude');
+                    dataTable.addColumn('number', 'Longitude');
+                    dataTable.addColumn('string', 'Location');
+                    dataTable.addColumn('number', 'Avg Steps');
 
+                    const mapGroups = {};
                     data.forEach(d => {
-                        if (d.country) {
-                            discoveredCountries.add(d.country);
-                        } else {
-                            containsUnformattedData = true;
+                        if(d.city) {
+                            if(!mapGroups[d.city]) mapGroups[d.city] = [];
+                            mapGroups[d.city].push(d.avgSteps);
                         }
                     });
 
-                    // Auto-Zoom Clause
-                    let autoRegion = 'world'; 
-                    if (discoveredCountries.size === 1 && !containsUnformattedData) {
-                        autoRegion = Array.from(discoveredCountries)[0]; 
-                    }
-
-                    // Map Rendering
-                    const regionData = [['Location', 'Avg Steps']];
-                    const mapGroups = {};
-                    
-                    data.forEach(d => {
-                        // If zoomed into a specific country, only hand the Map the City name!
-                        let mapLoc = (autoRegion !== 'world' && d.city) ? d.city : d.region;
+                    Object.keys(mapGroups).forEach(city => {
+                        const avg = mapGroups[city].reduce((a,b)=>a+b,0)/mapGroups[city].length;
+                        const lookup = city.toLowerCase();
                         
-                        if(!mapGroups[mapLoc]) mapGroups[mapLoc] = [];
-                        mapGroups[mapLoc].push(d.avgSteps);
+                        if (geoDB[lookup]) {
+                            dataTable.addRow([geoDB[lookup][0], geoDB[lookup][1], city, avg]);
+                        } else {
+                            console.log("Awaiting coordinates for: " + city);
+                        }
                     });
 
-                    Object.keys(mapGroups).forEach(loc => {
-                        const avg = mapGroups[loc].reduce((a,b)=>a+b,0)/mapGroups[loc].length;
-                        regionData.push([loc, avg]);
-                    });
-
-                    const dataTable = google.visualization.arrayToDataTable(regionData);
                     const options = {
-                        region: autoRegion,
+                        region: 'world', // <-- THIS SINGLE WORD MAKES IT GLOBAL
                         displayMode: 'markers',
                         colorAxis: {colors: ['#004411', '#00FF41']},
                         backgroundColor: '#050505',
