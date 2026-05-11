@@ -64,44 +64,45 @@ async def get_dashboard():
                 
                 .map-wrapper { 
                     width: 100vw; 
-                    height: 60vh; 
+                    height: 65vh; 
                     background: #000; 
                     border-top: 1px solid #1a1a1a; 
                     border-bottom: 1px solid #1a1a1a; 
                     overflow: hidden; 
                     position: relative; 
                     margin-bottom: 20px; 
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
                 }
                 
                 #map_div { 
                     width: 100%; 
-                    height: 100%; 
-                    transition: transform 2s ease-in-out; 
-                    transform-origin: center center;
+                    height: 110%; 
+                    transform: scale(1.5); /* Fixed wide-crop to fill desktop screens */
                 } 
 
-                /* Forced High-Visibility Pins */
+                /* Sharp, Minimalist Data Points */
                 .exhibition-pin {
-                    fill: #00FF41 !important;
                     stroke: #fff !important;
-                    stroke-width: 1px !important;
-                    filter: drop-shadow(0 0 5px #00FF41);
+                    stroke-width: 0.3px !important;
+                    filter: drop-shadow(0 0 2px rgba(0, 255, 65, 0.5));
                 }
 
                 .map-label { position: absolute; top: 20px; left: 20px; font-size: 0.7rem; color: #555; text-transform: uppercase; z-index: 10; }
                 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 95%; max-width: 1400px; margin-bottom: 40px;}
                 .card { background: #050505; border: 1px solid #1a1a1a; padding: 20px; border-radius: 4px; display: flex; flex-direction: column; align-items: center;}
-                canvas { width: 100% !important; height: 300px !important; }
+                canvas { width: 100% !important; height: 280px !important; }
                 .label { font-size: 0.7rem; color: #555; margin-bottom: 15px; text-transform: uppercase; align-self: flex-start; }
                 
-                #map_div path { stroke: #333 !important; stroke-width: 0.25px !important; }
+                #map_div path { stroke: #222 !important; stroke-width: 0.2px !important; }
             </style>
         </head>
         <body>
-            <h1>> COMMONS_EXHIBITION_MODE_V11.5</h1>
+            <h1>> COMMONS_EXHIBITION_MODE_V12</h1>
             
             <div class="map-wrapper">
-                <div class="map-label">Geographic Context / Adaptive Frame-Lock</div>
+                <div class="map-label">Global Geographic Distribution / 3px Precision</div>
                 <div id="map_div"></div>
             </div>
 
@@ -166,54 +167,22 @@ async def get_dashboard():
                     dataTable.addColumn('number', 'Latitude');
                     dataTable.addColumn('number', 'Longitude');
                     dataTable.addColumn('string', 'Location');
-                    dataTable.addColumn('number', 'Marker');
+                    dataTable.addColumn('number', 'Avg Steps');
 
-                    let lats = [], lons = [];
                     data.forEach(d => {
                         if (geoDB[d.city]) {
                             const [lat, lon] = geoDB[d.city];
-                            lats.push(lat); lons.push(lon);
-                            dataTable.addRow([lat, lon, d.city, 1]);
+                            dataTable.addRow([lat, lon, d.city, d.avgSteps]);
                         }
                     });
-
-                    if (lats.length > 0) {
-                        const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-                        const minLon = Math.min(...lons), maxLon = Math.max(...lons);
-                        const latSpan = maxLat - minLat, lonSpan = maxLon - minLon;
-                        const maxSpan = Math.max(latSpan, lonSpan);
-
-                        // Adaptive Frame-Lock Logic
-                        let zoomScale = 1.2; 
-                        let xOff = 0, yOff = 0;
-
-                        if (maxSpan < 0.5) { 
-                            zoomScale = 7.0; // Deep enough for London but safe
-                            xOff = -0.5; // Manual nudge to center UK
-                            yOff = 1.2;
-                        } else if (maxSpan < 10) { 
-                            zoomScale = 3.5; 
-                            xOff = -1.0; 
-                            yOff = 1.8;
-                        } else { 
-                            zoomScale = 1.5; 
-                            xOff = -1.5; 
-                            yOff = 2.0;
-                        }
-
-                        const centerLat = (minLat + maxLat) / 2;
-                        const centerLon = (minLon + maxLon) / 2;
-
-                        document.getElementById('map_div').style.transform = `scale(${zoomScale}) translate(${centerLon * xOff}px, ${centerLat * yOff}px)`;
-                    }
 
                     const options = {
                         region: 'world', 
                         displayMode: 'markers',
+                        colorAxis: {colors: ['#004411', '#00FF41']}, // Gradient preserved
                         backgroundColor: '#000',
                         datalessRegionColor: '#0A0A0A', 
-                        sizeAxis: { minValue: 1, maxValue: 1, minSize: 5, maxSize: 5 },
-                        colorAxis: {colors: ['#00FF41']},
+                        sizeAxis: { minValue: 0, maxValue: 100, minSize: 3, maxSize: 3 }, // Fixed 3px size
                         legend: 'none',
                         tooltip: { trigger: 'none' },
                         enableInteractivity: false
@@ -221,12 +190,11 @@ async def get_dashboard():
 
                     const chart = new google.visualization.GeoChart(document.getElementById('map_div'));
                     
-                    // Force the pins to glow and stay visible
                     google.visualization.events.addListener(chart, 'ready', function() {
                         const circles = document.getElementsByTagName('circle');
                         for(let i=0; i<circles.length; i++) {
                             circles[i].setAttribute('class', 'exhibition-pin');
-                            circles[i].setAttribute('r', '4'); 
+                            circles[i].setAttribute('r', '1.5'); // Radius for 3px diameter
                         }
                     });
 
@@ -242,7 +210,7 @@ async def get_dashboard():
                             datasets: [{
                                 label: 'Distance',
                                 data: data.map(d => ({ x: d.user, y: d.avgDist })),
-                                backgroundColor: theme, pointRadius: 8
+                                backgroundColor: theme, pointRadius: 6
                             }]
                         },
                         options: { scales: { x: { type: 'category', labels: [...new Set(data.map(d=>d.user))], grid: {display:false} }, y: {grid:{color:'#111'}} }, plugins:{legend:{display:false}} }
@@ -255,7 +223,7 @@ async def get_dashboard():
                             datasets: [{
                                 label: 'Asymmetry',
                                 data: data.map(d => ({ x: d.city, y: d.avgAsym })),
-                                backgroundColor: '#00ffff', pointRadius: 8
+                                backgroundColor: '#00ffff', pointRadius: 6
                             }]
                         },
                         options: { scales: { x: { type: 'category', labels: [...new Set(data.map(d=>d.city))], grid: {display:false} }, y: {grid:{color:'#111'}} }, plugins:{legend:{display:false}} }
