@@ -24,7 +24,7 @@ def get_google_sheet():
 class HealthMetrics(BaseModel):
     steps: Any
     distance: Any
-    energy: Any
+    asymmetry: Any # Swapped energy for asymmetry
 
 class HealthData(BaseModel):
     region: Optional[str] = "Unknown"
@@ -37,7 +37,8 @@ async def ingest_data(data: HealthData):
     try:
         sheet = get_google_sheet()
         if sheet:
-            new_row = [str(data.timestamp), str(data.anon_id), str(data.region), str(data.metrics.steps), str(data.metrics.distance), str(data.metrics.energy)]
+            # Pushing asymmetry to the sheet instead of energy
+            new_row = [str(data.timestamp), str(data.anon_id), str(data.region), str(data.metrics.steps), str(data.metrics.distance), str(data.metrics.asymmetry)]
             sheet.append_row(new_row)
             return {"status": "success"}
     except Exception as e:
@@ -66,13 +67,11 @@ async def get_dashboard():
                 .full-width { grid-column: span 2; }
                 canvas, #map_div { width: 100% !important; height: 450px; }
                 .label { font-size: 0.7rem; color: #555; margin-bottom: 15px; text-transform: uppercase; align-self: flex-start; }
-                
-                /* FIX: Hide Google's disputed borders by blending them into the map color */
                 #map_div path { stroke: #2a2a2a !important; stroke-width: 1px !important; stroke-linejoin: round !important; }
             </style>
         </head>
         <body>
-            <h1>> COMMONS_EXHIBITION_MODE_V7.1</h1>
+            <h1>> COMMONS_EXHIBITION_MODE_V8</h1>
             
             <div class="grid">
                 <div class="card full-width">
@@ -80,12 +79,12 @@ async def get_dashboard():
                     <div id="map_div"></div>
                 </div>
                 <div class="card">
-                    <div class="label">Avg Distance (m) / Per User</div>
+                    <div class="label">Max Distance (m) / Per User</div>
                     <canvas id="distChart"></canvas>
                 </div>
                 <div class="card">
-                    <div class="label">Avg Active Energy / Per Region</div>
-                    <canvas id="energyChart"></canvas>
+                    <div class="label">Avg Walking Asymmetry (%) / Per Region</div>
+                    <canvas id="asymChart"></canvas>
                 </div>
             </div>
 
@@ -125,17 +124,19 @@ async def get_dashboard():
                         let cleanRegion = country ? `${city}, ${country}` : city;
                         
                         const key = `${row['USER NAME']}|${cleanRegion}`;
-                        if (!group[key]) group[key] = { steps: [], dist: [], energy: [], user: row['USER NAME'], region: cleanRegion, city: city, country: country };
+                        if (!group[key]) group[key] = { steps: [], dist: [], asym: [], user: row['USER NAME'], region: cleanRegion, city: city, country: country };
+                        
                         group[key].steps.push(parseFloat(row['STEPS']) || 0);
                         group[key].dist.push(parseFloat(row['TOTAL DISTANCE (M)']) || 0);
-                        group[key].energy.push(parseFloat(row['ACTIVE ENERGY']) || 0);
+                        // Pulling from the new column header
+                        group[key].asym.push(parseFloat(row['WALKING ASYMMETRY']) || 0); 
                     });
 
                     const processed = Object.values(group).map(d => ({
                         user: d.user, region: d.region, city: d.city, country: d.country,
                         avgSteps: d.steps.reduce((a,b)=>a+b,0)/d.steps.length,
                         avgDist: d.dist.reduce((a,b)=>a+b,0)/d.dist.length,
-                        avgEnergy: d.energy.reduce((a,b)=>a+b,0)/d.energy.length
+                        avgAsym: d.asym.reduce((a,b)=>a+b,0)/d.asym.length
                     }));
 
                     drawMap(processed);
@@ -163,8 +164,6 @@ async def get_dashboard():
                         
                         if (geoDB[lookup]) {
                             dataTable.addRow([geoDB[lookup][0], geoDB[lookup][1], city, avg]);
-                        } else {
-                            console.log("Awaiting coordinates for: " + city);
                         }
                     });
 
@@ -174,7 +173,6 @@ async def get_dashboard():
                         colorAxis: {colors: ['#004411', '#00FF41']},
                         backgroundColor: '#050505',
                         datalessRegionColor: '#2a2a2a', 
-                        /* FIX: Drastically reduced the dot sizes so they don't overlap globally */
                         sizeAxis: { minValue: 0, maxValue: 50, minSize: 3, maxSize: 8 }
                     };
                     const chart = new google.visualization.GeoChart(document.getElementById('map_div'));
@@ -196,13 +194,13 @@ async def get_dashboard():
                         options: { scales: { x: { type: 'category', labels: [...new Set(data.map(d=>d.user))], grid: {display:false} }, y: {grid:{color:'#111'}} }, plugins:{legend:{display:false}} }
                     });
 
-                    if(charts.energy) charts.energy.destroy();
-                    charts.energy = new Chart(document.getElementById('energyChart'), {
+                    if(charts.asym) charts.asym.destroy();
+                    charts.asym = new Chart(document.getElementById('asymChart'), {
                         type: 'scatter',
                         data: {
                             datasets: [{
-                                label: 'Energy',
-                                data: data.map(d => ({ x: d.region, y: d.avgEnergy })),
+                                label: 'Asymmetry',
+                                data: data.map(d => ({ x: d.region, y: d.avgAsym })),
                                 backgroundColor: '#00ffff', pointRadius: 8
                             }]
                         },
