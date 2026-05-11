@@ -24,7 +24,7 @@ def get_google_sheet():
 class HealthMetrics(BaseModel):
     steps: Any
     distance: Any
-    asymmetry: Any # Swapped energy for asymmetry
+    asymmetry: Any 
 
 class HealthData(BaseModel):
     region: Optional[str] = "Unknown"
@@ -37,7 +37,6 @@ async def ingest_data(data: HealthData):
     try:
         sheet = get_google_sheet()
         if sheet:
-            # Pushing asymmetry to the sheet instead of energy
             new_row = [str(data.timestamp), str(data.anon_id), str(data.region), str(data.metrics.steps), str(data.metrics.distance), str(data.metrics.asymmetry)]
             sheet.append_row(new_row)
             return {"status": "success"}
@@ -60,24 +59,45 @@ async def get_dashboard():
             <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
             <link href="https://fonts.googleapis.com/css2?family=Space+Mono&display=swap" rel="stylesheet">
             <style>
-                body { background: #000; color: #fff; font-family: 'Space Mono', monospace; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+                body { background: #000; color: #fff; font-family: 'Space Mono', monospace; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; overflow-x: hidden; }
                 h1 { font-size: 1.1rem; font-weight: 200; letter-spacing: 8px; margin: 30px 0; color: #00FF41; text-transform: uppercase; text-align: center;}
-                .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 95%; max-width: 1400px; }
+                
+                .map-wrapper { 
+                    width: 100vw; 
+                    height: 60vh; 
+                    background: #050505; 
+                    border-top: 1px solid #1a1a1a; 
+                    border-bottom: 1px solid #1a1a1a; 
+                    overflow: hidden; 
+                    position: relative; 
+                    margin-bottom: 20px; 
+                }
+                
+                #map_div { 
+                    width: 100%; 
+                    height: 100%; 
+                    transition: transform 1.5s ease-in-out; 
+                    transform-origin: center center;
+                } 
+
+                .map-label { position: absolute; top: 20px; left: 20px; font-size: 0.7rem; color: #555; text-transform: uppercase; z-index: 10; }
+                .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 95%; max-width: 1400px; margin-bottom: 40px;}
                 .card { background: #050505; border: 1px solid #1a1a1a; padding: 20px; border-radius: 4px; display: flex; flex-direction: column; align-items: center;}
-                .full-width { grid-column: span 2; }
-                canvas, #map_div { width: 100% !important; height: 450px; }
+                canvas { width: 100% !important; height: 300px !important; }
                 .label { font-size: 0.7rem; color: #555; margin-bottom: 15px; text-transform: uppercase; align-self: flex-start; }
-                #map_div path { stroke: #2a2a2a !important; stroke-width: 1px !important; stroke-linejoin: round !important; }
+                
+                #map_div path { stroke: #222 !important; stroke-width: 0.3px !important; }
             </style>
         </head>
         <body>
-            <h1>> COMMONS_EXHIBITION_MODE_V8</h1>
+            <h1>> COMMONS_EXHIBITION_MODE_V11.1</h1>
             
+            <div class="map-wrapper">
+                <div class="map-label">Geographic Context / 3px Data Points</div>
+                <div id="map_div"></div>
+            </div>
+
             <div class="grid">
-                <div class="card full-width">
-                    <div class="label">Global Geographic Distribution / Avg Steps</div>
-                    <div id="map_div"></div>
-                </div>
                 <div class="card">
                     <div class="label">Max Distance (m) / Per User</div>
                     <canvas id="distChart"></canvas>
@@ -112,28 +132,18 @@ async def get_dashboard():
                     const group = {};
                     rawData.forEach(row => {
                         let rawReg = row['REGION'] || 'Unknown';
-                        let parts = rawReg.split(',');
+                        let city = rawReg.split(',')[0].trim().toLowerCase();
                         
-                        let city = parts[0].trim();
-                        if(city.length > 0) city = city.charAt(0).toUpperCase() + city.slice(1).toLowerCase();
-                        
-                        let country = parts.length > 1 ? parts[1].trim().toUpperCase() : '';
-                        if (country === 'UK' || country === 'U.K.') country = 'GB';
-                        if (country === 'USA') country = 'US';
-                        
-                        let cleanRegion = country ? `${city}, ${country}` : city;
-                        
-                        const key = `${row['USER NAME']}|${cleanRegion}`;
-                        if (!group[key]) group[key] = { steps: [], dist: [], asym: [], user: row['USER NAME'], region: cleanRegion, city: city, country: country };
+                        const key = `${row['USER NAME']}|${city}`;
+                        if (!group[key]) group[key] = { steps: [], dist: [], asym: [], user: row['USER NAME'], city: city };
                         
                         group[key].steps.push(parseFloat(row['STEPS']) || 0);
                         group[key].dist.push(parseFloat(row['TOTAL DISTANCE (M)']) || 0);
-                        // Pulling from the new column header
                         group[key].asym.push(parseFloat(row['WALKING ASYMMETRY']) || 0); 
                     });
 
                     const processed = Object.values(group).map(d => ({
-                        user: d.user, region: d.region, city: d.city, country: d.country,
+                        user: d.user, city: d.city,
                         avgSteps: d.steps.reduce((a,b)=>a+b,0)/d.steps.length,
                         avgDist: d.dist.reduce((a,b)=>a+b,0)/d.dist.length,
                         avgAsym: d.asym.reduce((a,b)=>a+b,0)/d.asym.length
@@ -150,9 +160,14 @@ async def get_dashboard():
                     dataTable.addColumn('string', 'Location');
                     dataTable.addColumn('number', 'Avg Steps');
 
+                    let lats = [], lons = [];
                     const mapGroups = {};
+                    
                     data.forEach(d => {
-                        if(d.city) {
+                        if (geoDB[d.city]) {
+                            const [lat, lon] = geoDB[d.city];
+                            lats.push(lat);
+                            lons.push(lon);
                             if(!mapGroups[d.city]) mapGroups[d.city] = [];
                             mapGroups[d.city].push(d.avgSteps);
                         }
@@ -160,20 +175,37 @@ async def get_dashboard():
 
                     Object.keys(mapGroups).forEach(city => {
                         const avg = mapGroups[city].reduce((a,b)=>a+b,0)/mapGroups[city].length;
-                        const lookup = city.toLowerCase();
-                        
-                        if (geoDB[lookup]) {
-                            dataTable.addRow([geoDB[lookup][0], geoDB[lookup][1], city, avg]);
-                        }
+                        const coords = geoDB[city.toLowerCase()];
+                        dataTable.addRow([coords[0], coords[1], city, avg]);
                     });
+
+                    // Adaptive Zoom
+                    if (lats.length > 0) {
+                        const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+                        const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+                        const latSpan = maxLat - minLat, lonSpan = maxLon - minLon;
+                        const maxSpan = Math.max(latSpan, lonSpan);
+
+                        let zoomScale = 1.2; 
+                        if (maxSpan < 2) zoomScale = 4.0;      
+                        else if (maxSpan < 10) zoomScale = 2.5; 
+                        else if (maxSpan < 40) zoomScale = 1.5; 
+
+                        const xOffset = ((minLon + maxLon) / 2) * -1.2; 
+                        const yOffset = ((minLat + maxLat) / 2) * 1.5;
+
+                        document.getElementById('map_div').style.transform = `scale(${zoomScale}) translate(${xOffset}px, ${yOffset}px)`;
+                    }
 
                     const options = {
                         region: 'world', 
                         displayMode: 'markers',
-                        colorAxis: {colors: ['#004411', '#00FF41']},
+                        colorAxis: {colors: ['#004411', '#00FF41']}, // Dark to Neon Green
                         backgroundColor: '#050505',
-                        datalessRegionColor: '#2a2a2a', 
-                        sizeAxis: { minValue: 0, maxValue: 50, minSize: 3, maxSize: 8 }
+                        datalessRegionColor: '#111', 
+                        // FIXED: 3px dots for visible gradient
+                        sizeAxis: { minValue: 0, maxValue: 50, minSize: 3, maxSize: 3 },
+                        legend: 'none'
                     };
                     const chart = new google.visualization.GeoChart(document.getElementById('map_div'));
                     chart.draw(dataTable, options);
@@ -200,11 +232,11 @@ async def get_dashboard():
                         data: {
                             datasets: [{
                                 label: 'Asymmetry',
-                                data: data.map(d => ({ x: d.region, y: d.avgAsym })),
+                                data: data.map(d => ({ x: d.city, y: d.avgAsym })),
                                 backgroundColor: '#00ffff', pointRadius: 8
                             }]
                         },
-                        options: { scales: { x: { type: 'category', labels: [...new Set(data.map(d=>d.region))], grid: {display:false} }, y: {grid:{color:'#111'}} }, plugins:{legend:{display:false}} }
+                        options: { scales: { x: { type: 'category', labels: [...new Set(data.map(d=>d.city))], grid: {display:false} }, y: {grid:{color:'#111'}} }, plugins:{legend:{display:false}} }
                     });
                 }
 
