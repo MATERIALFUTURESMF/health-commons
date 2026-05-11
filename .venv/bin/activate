@@ -37,7 +37,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="/Users/benjamin/Desktop/HOME/MATERAL FUTURES/DATAMIND/health-commons/.venv"
+VIRTUAL_ENV="/Users/benjamin/Desktop/HOME/MATERAL FUTURES/DEEPMIND/DATAMIND/health-commons/.venv"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"

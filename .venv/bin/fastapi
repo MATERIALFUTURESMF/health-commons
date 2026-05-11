@@ -1,5 +1,5 @@
 #!/bin/sh
-'''exec' "/Users/benjamin/Desktop/HOME/MATERAL FUTURES/DATAMIND/health-commons/.venv/bin/python3" "$0" "$@"
+'''exec' "/Users/benjamin/Desktop/HOME/MATERAL FUTURES/DEEPMIND/DATAMIND/health-commons/.venv/bin/python3" "$0" "$@"
 ' '''
 # -*- coding: utf-8 -*-
 import re
