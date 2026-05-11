@@ -1,4 +1,54 @@
-# ... (Keep all your imports and FastAPI setup the same)
+import os
+import json
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from typing import Optional, Any
+import gspread
+from google.oauth2.service_account import Credentials
+
+# --- THIS WAS THE MISSING PIECE ---
+app = FastAPI()
+
+def get_google_sheet():
+    creds_json = os.environ.get("GOOGLE_CREDS")
+    if not creds_json: return None
+    try:
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds_dict = json.loads(creds_json)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        return client.open("Health Commons Data").sheet1
+    except Exception as e:
+        return None
+
+class HealthMetrics(BaseModel):
+    steps: Any
+    distance: Any
+    asymmetry: Any 
+
+class HealthData(BaseModel):
+    region: Optional[str] = "Unknown"
+    timestamp: Optional[str] = None
+    anon_id: Optional[str] = "anonymous"
+    metrics: HealthMetrics
+
+@app.post("/ingest")
+async def ingest_data(data: HealthData):
+    try:
+        sheet = get_google_sheet()
+        if sheet:
+            new_row = [str(data.timestamp), str(data.anon_id), str(data.region), str(data.metrics.steps), str(data.metrics.distance), str(data.metrics.asymmetry)]
+            sheet.append_row(new_row)
+            return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/stats")
+async def get_stats():
+    sheet = get_google_sheet()
+    if not sheet: return {"error": "Connection failed"}
+    return sheet.get_all_records()
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def get_dashboard():
@@ -31,10 +81,9 @@ async def get_dashboard():
                     transform-origin: center center;
                 } 
 
-                /* Force the markers to look sharper via CSS if the API struggles */
                 #map_div circle { 
                     stroke-width: 0.5px !important; 
-                    stroke: rgba(255,255,255,0.2) !important;
+                    stroke: rgba(255,255,255,0.1) !important;
                 }
 
                 .map-label { position: absolute; top: 20px; left: 20px; font-size: 0.7rem; color: #555; text-transform: uppercase; z-index: 10; }
@@ -43,7 +92,7 @@ async def get_dashboard():
                 canvas { width: 100% !important; height: 300px !important; }
                 .label { font-size: 0.7rem; color: #555; margin-bottom: 15px; text-transform: uppercase; align-self: flex-start; }
                 
-                #map_div path { stroke: #222 !important; stroke-width: 0.2px !important; }
+                #map_div path { stroke: #222 !important; stroke-width: 0.15px !important; }
             </style>
         </head>
         <body>
@@ -136,24 +185,21 @@ async def get_dashboard():
                         dataTable.addRow([coords[0], coords[1], city, avg]);
                     });
 
-                    // --- ENHANCED AUTO-ZOOM BRAIN ---
                     if (lats.length > 0) {
                         const minLat = Math.min(...lats), maxLat = Math.max(...lats);
                         const minLon = Math.min(...lons), maxLon = Math.max(...lons);
                         const latSpan = maxLat - minLat, lonSpan = maxLon - minLon;
                         const maxSpan = Math.max(latSpan, lonSpan);
 
-                        // If it's just London/One city, zoom aggressively (8x instead of 4x)
                         let zoomScale = 1.2; 
-                        if (maxSpan < 0.5) zoomScale = 8.5;     // Ultra-local (Street/City level)
-                        else if (maxSpan < 2) zoomScale = 6.0;   // Metro area
-                        else if (maxSpan < 10) zoomScale = 3.5;  // National
-                        else if (maxSpan < 40) zoomScale = 1.8;  // Continental
+                        if (maxSpan < 0.5) zoomScale = 8.5;     
+                        else if (maxSpan < 2) zoomScale = 6.0;   
+                        else if (maxSpan < 10) zoomScale = 3.5;  
+                        else if (maxSpan < 40) zoomScale = 1.8;  
 
                         const centerLat = (minLat + maxLat) / 2;
                         const centerLon = (minLon + maxLon) / 2;
 
-                        // Adjusted transform math to center precisely on the cluster
                         const xOffset = centerLon * -1.8; 
                         const yOffset = centerLat * 2.2;
 
@@ -166,17 +212,41 @@ async def get_dashboard():
                         colorAxis: {colors: ['#004411', '#00FF41']},
                         backgroundColor: '#000',
                         datalessRegionColor: '#080808', 
-                        // Lock markers to a strictly small visual size
                         sizeAxis: { minValue: 0, maxValue: 100, minSize: 2, maxSize: 2 },
                         legend: 'none',
-                        tooltip: { trigger: 'none' } // Cleaner for exhibition
+                        tooltip: { trigger: 'none' }
                     };
                     const chart = new google.visualization.GeoChart(document.getElementById('map_div'));
                     chart.draw(dataTable, options);
                 }
 
                 function drawScatters(data) {
-                    // ... (Keep scatter code as is)
+                    const theme = '#00FF41';
+                    if(charts.dist) charts.dist.destroy();
+                    charts.dist = new Chart(document.getElementById('distChart'), {
+                        type: 'scatter',
+                        data: {
+                            datasets: [{
+                                label: 'Distance',
+                                data: data.map(d => ({ x: d.user, y: d.avgDist })),
+                                backgroundColor: theme, pointRadius: 8
+                            }]
+                        },
+                        options: { scales: { x: { type: 'category', labels: [...new Set(data.map(d=>d.user))], grid: {display:false} }, y: {grid:{color:'#111'}} }, plugins:{legend:{display:false}} }
+                    });
+
+                    if(charts.asym) charts.asym.destroy();
+                    charts.asym = new Chart(document.getElementById('asymChart'), {
+                        type: 'scatter',
+                        data: {
+                            datasets: [{
+                                label: 'Asymmetry',
+                                data: data.map(d => ({ x: d.city, y: d.avgAsym })),
+                                backgroundColor: '#00ffff', pointRadius: 8
+                            }]
+                        },
+                        options: { scales: { x: { type: 'category', labels: [...new Set(data.map(d=>d.city))], grid: {display:false} }, y: {grid:{color:'#111'}} }, plugins:{legend:{display:false}} }
+                    });
                 }
 
                 google.charts.setOnLoadCallback(updateAll);
@@ -186,3 +256,7 @@ async def get_dashboard():
     </html>
     """
     return HTMLResponse(content=html_content)
+
+@app.get("/")
+async def root():
+    return {"status": "Online", "project": "Material Futures"}
