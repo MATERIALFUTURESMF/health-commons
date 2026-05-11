@@ -69,7 +69,7 @@ async def get_dashboard():
             </style>
         </head>
         <body>
-            <h1>> COMMONS_EXHIBITION_MODE_V4</h1>
+            <h1>> COMMONS_EXHIBITION_MODE_V5</h1>
             
             <div class="grid">
                 <div class="card full-width">
@@ -96,15 +96,33 @@ async def get_dashboard():
                     
                     const group = {};
                     rawData.forEach(row => {
-                        const key = `${row['USER NAME']}|${row['REGION']}`;
-                        if (!group[key]) group[key] = { steps: [], dist: [], energy: [], user: row['USER NAME'], region: row['REGION'] };
+                        // --- DATA SANITIZATION ENGINE ---
+                        let rawReg = row['REGION'] || 'Unknown';
+                        let parts = rawReg.split(',');
+                        
+                        // 1. Clean the city name (capitalize first letter, lowercase rest)
+                        let city = parts[0].trim();
+                        if(city.length > 0) {
+                            city = city.charAt(0).toUpperCase() + city.slice(1).toLowerCase();
+                        }
+                        
+                        // 2. Clean the country code
+                        let country = parts.length > 1 ? parts[1].trim().toUpperCase() : '';
+                        if (country === 'UK' || country === 'U.K.') country = 'GB';
+                        if (country === 'USA') country = 'US';
+                        
+                        // 3. Rebuild a perfect string for the scatter charts (e.g., "Hammersmith, GB")
+                        let cleanRegion = country ? `${city}, ${country}` : city;
+                        
+                        const key = `${row['USER NAME']}|${cleanRegion}`;
+                        if (!group[key]) group[key] = { steps: [], dist: [], energy: [], user: row['USER NAME'], region: cleanRegion, city: city, country: country };
                         group[key].steps.push(parseFloat(row['STEPS']) || 0);
                         group[key].dist.push(parseFloat(row['TOTAL DISTANCE (M)']) || 0);
                         group[key].energy.push(parseFloat(row['ACTIVE ENERGY']) || 0);
                     });
 
                     const processed = Object.values(group).map(d => ({
-                        user: d.user, region: d.region,
+                        user: d.user, region: d.region, city: d.city, country: d.country,
                         avgSteps: d.steps.reduce((a,b)=>a+b,0)/d.steps.length,
                         avgDist: d.dist.reduce((a,b)=>a+b,0)/d.dist.length,
                         avgEnergy: d.energy.reduce((a,b)=>a+b,0)/d.energy.length
@@ -115,45 +133,43 @@ async def get_dashboard():
                 }
 
                 function drawMap(data) {
-                    const regionData = [['City', 'Avg Steps']];
-                    const regions = {};
                     const discoveredCountries = new Set();
                     let containsUnformattedData = false;
 
                     data.forEach(d => {
-                        // 1. Group the raw data for plotting
-                        if(!regions[d.region]) regions[d.region] = [];
-                        regions[d.region].push(d.avgSteps);
-
-                        // 2. Scan the geography for our Auto-Zoom clause
-                        const parts = d.region.split(',');
-                        if (parts.length > 1) {
-                            let countryCode = parts[parts.length - 1].trim().toUpperCase();
-                            // Google strictly needs 'GB' instead of 'UK', and 'US' instead of 'USA'
-                            if (countryCode === 'UK') countryCode = 'GB';
-                            if (countryCode === 'USA') countryCode = 'US';
-                            discoveredCountries.add(countryCode);
+                        if (d.country) {
+                            discoveredCountries.add(d.country);
                         } else {
                             containsUnformattedData = true;
                         }
                     });
 
-                    // 3. Prepare the final plotted data
-                    Object.keys(regions).forEach(r => {
-                        const avg = regions[r].reduce((a,b)=>a+b,0)/regions[r].length;
-                        regionData.push([r, avg]);
+                    // Auto-Zoom Clause
+                    let autoRegion = 'world'; 
+                    if (discoveredCountries.size === 1 && !containsUnformattedData) {
+                        autoRegion = Array.from(discoveredCountries)[0]; 
+                    }
+
+                    // Map Rendering
+                    const regionData = [['Location', 'Avg Steps']];
+                    const mapGroups = {};
+                    
+                    data.forEach(d => {
+                        // If zoomed into a specific country, only hand the Map the City name!
+                        let mapLoc = (autoRegion !== 'world' && d.city) ? d.city : d.region;
+                        
+                        if(!mapGroups[mapLoc]) mapGroups[mapLoc] = [];
+                        mapGroups[mapLoc].push(d.avgSteps);
                     });
 
-                    // 4. THE AUTO-ZOOM CLAUSE
-                    let autoRegion = 'world'; 
-                    // If exactly one country exists AND all data is properly formatted (has commas)
-                    if (discoveredCountries.size === 1 && !containsUnformattedData) {
-                        autoRegion = Array.from(discoveredCountries)[0]; // Zoom to that specific country!
-                    }
+                    Object.keys(mapGroups).forEach(loc => {
+                        const avg = mapGroups[loc].reduce((a,b)=>a+b,0)/mapGroups[loc].length;
+                        regionData.push([loc, avg]);
+                    });
 
                     const dataTable = google.visualization.arrayToDataTable(regionData);
                     const options = {
-                        region: autoRegion, // Dynamically set!
+                        region: autoRegion,
                         displayMode: 'markers',
                         colorAxis: {colors: ['#004411', '#00FF41']},
                         backgroundColor: '#050505',
