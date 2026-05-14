@@ -25,6 +25,7 @@ class HealthMetrics(BaseModel):
     steps: Any
     distance: Any
     asymmetry: Any 
+    hrv: Optional[Any] = 0
 
 class HealthData(BaseModel):
     region: Optional[str] = "Unknown"
@@ -37,7 +38,15 @@ async def ingest_data(data: HealthData):
     try:
         sheet = get_google_sheet()
         if sheet:
-            new_row = [str(data.timestamp), str(data.anon_id), str(data.region), str(data.metrics.steps), str(data.metrics.distance), str(data.metrics.asymmetry)]
+            new_row = [
+                str(data.timestamp), 
+                str(data.anon_id), 
+                str(data.region), 
+                str(data.metrics.steps), 
+                str(data.metrics.distance), 
+                str(data.metrics.asymmetry),
+                str(data.metrics.hrv)
+            ]
             sheet.append_row(new_row)
             return {"status": "success"}
     except Exception as e:
@@ -79,14 +88,15 @@ async def get_dashboard():
                 #map_div { 
                     width: 100%; 
                     height: 110%; 
-                    transform: scale(1.5); /* Fixed wide-crop to fill desktop screens */
+                    transform: scale(1.5); 
                 } 
 
-                /* Sharp, Minimalist Data Points */
+                /* High-visibility Exhibition Pins */
                 .exhibition-pin {
+                    fill: #00FF41 !important;
                     stroke: #fff !important;
-                    stroke-width: 0.3px !important;
-                    filter: drop-shadow(0 0 2px rgba(0, 255, 65, 0.5));
+                    stroke-width: 0.8px !important;
+                    filter: drop-shadow(0 0 5px #00FF41);
                 }
 
                 .map-label { position: absolute; top: 20px; left: 20px; font-size: 0.7rem; color: #555; text-transform: uppercase; z-index: 10; }
@@ -95,14 +105,18 @@ async def get_dashboard():
                 canvas { width: 100% !important; height: 280px !important; }
                 .label { font-size: 0.7rem; color: #555; margin-bottom: 15px; text-transform: uppercase; align-self: flex-start; }
                 
-                #map_div path { stroke: #222 !important; stroke-width: 0.2px !important; }
+                /* GREY ON BLACK: Landmass outlines now visible */
+                #map_div path { 
+                    stroke: #444 !important; 
+                    stroke-width: 0.4px !important; 
+                }
             </style>
         </head>
         <body>
-            <h1>> COMMONS_EXHIBITION_MODE_V12</h1>
+            <h1>> COMMONS_EXHIBITION_MODE_V12.1</h1>
             
             <div class="map-wrapper">
-                <div class="map-label">Global Geographic Distribution / 3px Precision</div>
+                <div class="map-label">Global Geographic Distribution / High Contrast Mode</div>
                 <div id="map_div"></div>
             </div>
 
@@ -179,10 +193,11 @@ async def get_dashboard():
                     const options = {
                         region: 'world', 
                         displayMode: 'markers',
-                        colorAxis: {colors: ['#004411', '#00FF41']}, // Gradient preserved
+                        colorAxis: {colors: ['#004411', '#00FF41']},
                         backgroundColor: '#000',
-                        datalessRegionColor: '#0A0A0A', 
-                        sizeAxis: { minValue: 0, maxValue: 100, minSize: 3, maxSize: 3 }, // Fixed 3px size
+                        /* GREY ON BLACK: Setting dataless regions to a visible mid-grey */
+                        datalessRegionColor: '#1a1a1a', 
+                        sizeAxis: { minValue: 0, maxValue: 100, minSize: 3, maxSize: 3 },
                         legend: 'none',
                         tooltip: { trigger: 'none' },
                         enableInteractivity: false
@@ -194,7 +209,7 @@ async def get_dashboard():
                         const circles = document.getElementsByTagName('circle');
                         for(let i=0; i<circles.length; i++) {
                             circles[i].setAttribute('class', 'exhibition-pin');
-                            circles[i].setAttribute('r', '1.5'); // Radius for 3px diameter
+                            circles[i].setAttribute('r', '2.5'); 
                         }
                     });
 
